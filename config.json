@@ -1,0 +1,19 @@
+{
+  "device": 5,
+  "epoch_num": 1000,
+  "batch_size": 256,
+  "batch_train_epoch": 60,
+  "batch_valid_epoch": 100,
+  "layer_numer": 12,
+  "distribution_dim": 10,
+  "dataset": "tpch1gb_xl_v1",
+  "flag_train": "False",
+  "flag_test": "True",
+  "psql_connect": {
+    "pg_ip": "59.77.5.98",
+    "pg_port": "5432",
+    "pg_user": "xianlv",
+    "pg_password": "xianlv404"
+  }
+
+}
