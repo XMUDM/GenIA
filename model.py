@@ -26,18 +26,8 @@ from psql.PostgreSQL import PGHypo as PG
 import logging
 
 
-# 随机扰动掩码函数
+# random mask function
 def random_masking(input_sequence, mask_prob=0.1):
-    """
-    随机掩码扰动函数，给定一个输入序列，随机将一部分位置的值置为零。
-
-    Parameters:
-    - input_sequence (numpy array): 输入序列，可以是一个掩码矩阵
-    - mask_prob (float): 控制掩码的概率，默认为0.2
-
-    Returns:
-    - masked_sequence (numpy array): 扰动后的序列
-    """
     mask = (torch.rand_like(input_sequence, dtype=torch.float32) > mask_prob).float()
 
     masked_sequence = input_sequence * mask
