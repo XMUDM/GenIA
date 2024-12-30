@@ -1,6 +1,6 @@
 # GenIA
 Generative Index Advising for Dynamic HTAP Workloads and Data
-![Framework overview of GenIA](./model_v2.png)
+![Framework overview of GenIA](./model_v2.pdf)
 
 ### Code structure
 ├── config.json　　　　　　　　　　　　　　　　　　 # Experimental Configuration File  
