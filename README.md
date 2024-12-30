@@ -26,7 +26,7 @@ Generative Index Advising for Dynamic HTAP Workloads and Data
 
 ```
 pip install -r requirements.txt         # Install requirements with pip
-python main.py# Run a experiment
+python main.py # Run a experiment
 ```
 
 Experiments can be controlled with the **config.json** file. For descriptions of the components and functioning, consult our paper.
