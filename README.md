@@ -1,5 +1,5 @@
 # GenIA
-Generative Index Advising for Dynamic HTAP Workloads and Data
+Generative Index Advising for Dynamic Workloads and Data
 ![Framework overview of GenIA](./structure.png)
 
 ### Code structure
