@@ -12,11 +12,11 @@ Generative Index Advising for Dynamic Workloads and Data
 ├── planTree.py　　　　　　　　　　　　　　　　　　 # Plan Encoding  
 ├── log　　　　　　　　　　　　　　　　　　　　     # Log File                  
 ├── psql　　　　　　　　　　　　　　　　　　　　      
-│　　├── PostgreSQL.py　　　　　　　　　　　　     # Interact with psql  
+│　　└──  PostgreSQL.py　　　　　　　　　　　　     # Interact with psql  
 └── pth　　　　　　　　　　　　　　　　　					     # save the model               
 │　　├── tpch                     
 │　　├── tpcds                      
-│　　├── chbenchmark                      
+│　　└──  chbenchmark                      
 └── resource　　　　　　　　　　　　　　　　			    # Training data and other useful json file             
 　　 ├── tpch              
 　　 ├── tpcds                  
@@ -26,7 +26,7 @@ Generative Index Advising for Dynamic Workloads and Data
 
 ```
 pip install -r requirements.txt         # Install requirements with pip
-python main.py                          # Run a experiment
+python main.py					        # Run a experiment
 ```
 
 Experiments can be controlled with the **config.json** file. For descriptions of the components and functioning, consult our paper.
