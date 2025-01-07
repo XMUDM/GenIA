@@ -120,18 +120,18 @@ def get_test_data(d_model, test_data):
 
 
 # test model
-def test_model_storage_FSM(data_processor, block_indexes, block_sizes, d_model, model, test_data, pth_path, config,
+def test_model_storage_FSM(block_indexes, block_sizes, d_model, model, test_data, pth_path, config,
                            model_dim, vocab_len, max_len, start_symbol):
-    # load model
-    print(f"Loading model from: {pth_path}/transformer_model_{dataset}_30p_c3_noise_2_4.pth")
-    model.load_state_dict(torch.load(f"{pth_path}/transformer_model_{dataset}_30p_c3_noise_2_4.pth"))
+    # 加载模型参数
+    print(f"Loading model from: {pth_path}/model_{dataset}_30p_final.pth")
+    model.load_state_dict(torch.load(f"{pth_path}/model_{dataset}_30p_final.pth"))
     print(f"Load model End")
-    # test mode
+    # 模型切换到预测模型
     model.eval()
     # prepare workloads
     db_connector = PG(config)
-    # column_mask
-    seq_len = V - 4
+    # 计算column_mask
+    seq_len = V - 3
     # table_attention
     block_mask1 = torch.ones(seq_len, seq_len)
     for i, size in enumerate(block_sizes):
@@ -144,37 +144,31 @@ def test_model_storage_FSM(data_processor, block_indexes, block_sizes, d_model, 
         start_idx = block_indexes[i]
         end_idx = block_indexes[i] + block_sizes[i]
         block_mask2[start_idx:end_idx, start_idx:end_idx] = 1
-    # data generator
+    # 测试数据生成器
     valid_data_iter = data_gen_test(vocab, test_data, d_model, 1, batch_valid_epoch, block_mask1, block_mask2)
     reward_compare_sum = 0
     reward_compare_num = 0
     reward_label_sum = 0
     reward_gen_sum = 0
-    reward_250_sum = 0
-    reward_250_num = 0
-    reward_500_sum = 0
-    reward_500_num = 0
-    reward_750_sum = 0
-    reward_750_num = 0
-    reward_1000_sum = 0
-    reward_1000_num = 0
-    reward_1500_sum = 0
-    reward_1500_num = 0
-    reward_2000_sum = 0
-    reward_2000_num = 0
+    print("Inference Begin")
+    start_time = time.time()
+    test_workload = []
     for i, batch in enumerate(valid_data_iter):
+        new_data = {}
+        # ys代表目前已生成的序列，最初为仅包含一个起始符的序列，不断将预测结果追加到序列最后
         ys = torch.ones(1, 1).fill_(start_symbol).type_as(batch.src).to(device)
         new_ys = copy.deepcopy(ys).tolist()
 
-        # generate new_vocab
+        # 生成new_vocab
         new_vocab = dict()
         new_vocab['<pad>'] = [0.0] * model_dim
-        new_vocab['<start>'] = ([1.0] * int((model_dim // 2))) + ([0.0] * int((model_dim // 2 + model_dim % 2)))
-        new_vocab[';'] = [1.0] * model_dim
-        new_vocab['<end>'] = ([0.0] * int((model_dim // 2))) + ([1.0] * int((model_dim // 2 + model_dim % 2)))
+        new_vocab['<start>'] = [1.0] * model_dim
+        new_vocab[';'] = ([1.0] * int((model_dim // 2))) + ([0.0] * int((model_dim // 2 + model_dim % 2)))
         new_src = batch.src.tolist()[0]
         for k in range(len(new_src)):
-            new_vocab[vocab[k + 4]] = new_src[k]
+            new_vocab[vocab[k + 3]] = new_src[k]
+
+        # 对new_ys启发式编码
         for k in range(len(new_ys[0])):
             new_ys[0][k] = list(new_vocab.values())[int(new_ys[0][k])]
         new_ys = torch.tensor(new_ys).to(device)
@@ -188,16 +182,15 @@ def test_model_storage_FSM(data_processor, block_indexes, block_sizes, d_model, 
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).to(device)
         new_ys = new_ys + pe[:, : new_ys.size(1)].requires_grad_(False)
-        # decode ys
+        # 对ys解码
         str_ys = copy.deepcopy(ys).tolist()[0]
         str_ys = str_ys[1:len(str_ys)]
         for k in range(len(str_ys)):
             str_ys[k] = list(new_vocab.keys())[int(str_ys[k])]
         str_ys = ' '.join(str_ys)
         next_word = -1
-        model.to(device)
-        budget = math.exp(batch.src[0][0][4]) - 1e-8
-        budget = (budget + 1) // 250 * 250
+        model.to(device)  # 将模型移到设备上
+        budget = math.exp(batch.src[0][0][3]) - 1e-8
         # budget = batch.src[0][0][3]
         batch.src = batch.src.to(device)
         batch.tgt = batch.tgt.to(device)
@@ -208,84 +201,104 @@ def test_model_storage_FSM(data_processor, block_indexes, block_sizes, d_model, 
         batch.tgt_y = batch.tgt_y.to(device)
         memory = model.encode(batch.src, batch.src_mask1, batch.src_mask2)
         created_indexes = []
-        db_connector.delete_indexes()
-        workload = batch.workload[0]
-        init_cost = (np.array(db_connector.get_queries_cost(list(workload.keys()))) * np.array(
-            list(workload.values()))).sum()
         flag_init = True
         flag_index_first = False
         flag_index_inner = False
+        flag_seq = False
+        flag_done = False
         column_set = []
+        label_indexes_lenth = len(batch.tgt_o[0].split(';'))
+        index_lenth = 0
         while True:
-            # mask matrix
+            if index_lenth >= label_indexes_lenth:
+                break
+            # 掩码矩阵，1表示掩
             mask = [1] * vocab_len
-            # init
+            # 初始化
             if flag_init:
                 flag_init = False
                 flag_index_first = True
                 flag_index_inner = False
-            # "separator"
-            if next_word == 2:
-                mask[3] = 0
-            # first column
+                flag_seq = False
+            # 上一步选了分隔符
+            if flag_seq:
+                flag_index_first = True
+                flag_index_inner = False
+                flag_seq = False
+            # 索引第一个属性
             if flag_index_first:
-                # mask columns not in workload
+                # 掩码workload无关属性
                 for j in range(batch.src.shape[1]):
                     flag_use = False
-                    for k in range(15, 30):
+                    for k in range(14, 26):
                         if batch.src[0, j, k] != 0.0:
                             flag_use = True
                     if flag_use:
-                        mask[j + 4] = 0
+                        mask[j + 3] = 0
+                flag_seq = False
+                flag_index_first = False
+                flag_index_inner = True
             if flag_index_inner:
+                upper = lowwer = 0
                 for item in block_indexes:
-                    if (next_word - 4) >= item:
-                        lower = item
+                    if (next_word - 3) >= item:
+                        lowwer = item
                     else:
                         break
-                upper = lower + block_sizes[block_indexes.index(lower)]
-                # second column
+                upper = lowwer + block_sizes[block_indexes.index(lowwer)]
                 if len(column_set) == 1:
-                    for i in range(lower, upper):
+                    for i in range(lowwer, upper):
                         flag_use = False
-                        for k in range(15, 30):
+                        for k in range(14, 26):
                             if batch.src[0, i, k] != 0.0:
                                 flag_use = True
-                        if i != (next_word - 4) and flag_use:
-                            mask[i + 4] = 0
-                    # can be end
+                        if i != (next_word - 3) and flag_use:
+                            mask[i + 3] = 0
+                    # 可结束
                     index_str = column_set[0]
                     if index_str not in created_indexes:
                         mask[2] = 0
-                # third column
-                if len(column_set) == 2:
-                    for i in range(lower, upper):
+                        if flag_done:
+                            mask[0] = 0
+                    flag_index_first = False
+                    flag_index_inner = True
+                    flag_seq = False
+                if len(column_set) == 2:  # 第三属性
+                    for i in range(lowwer, upper):
                         flag_same = False
                         column_set_copy = column_set.copy()
-                        column_set_copy.append(vocab[4 + i])
+                        column_set_copy.append(vocab[3 + i])
                         index_str = ' '.join(column_set_copy)
                         if index_str in created_indexes:
                             flag_same = True
                         flag_use = False
-                        for k in range(15, 30):
+                        for k in range(14, 26):
                             if batch.src[0, i, k] != 0.0:
                                 flag_use = True
-                        if i != (next_word - 4) and i != (
-                                vocab.index(column_set[0]) - 4) and not flag_same and flag_use:
-                            mask[i + 4] = 0
+                        if i != (next_word - 3) and i != (
+                                vocab.index(column_set[0]) - 3) and not flag_same and flag_use:
+                            mask[i + 3] = 0
                         # 可结束
                         index_str = ' '.join(column_set)
                         if index_str not in created_indexes:
                             mask[2] = 0
-            if len(column_set) == 3:
-                # can be end
-                index_str = ' '.join(column_set)
-                if index_str not in created_indexes:
-                    mask[2] = 0
-                    flag_index_first = False
-                    flag_index_inner = False
-                else:
-                    break
+                            if flag_done:
+                                mask[0] = 0
+                        flag_index_first = False
+                        flag_index_inner = False
+                        flag_seq = True
+                if len(column_set) == 3:
+                    # 可结束
+                    index_str = ' '.join(column_set)
+                    if index_str not in created_indexes:
+                        mask[2] = 0
+                        if flag_done:
+                            mask[0] = 0
+                        flag_index_first = False
+                        flag_index_inner = False
+                        flag_seq = True
+                    else:
+                        break
             if mask == [1] * vocab_len:
                 break
             out = model.decode(memory, batch.src_mask3, new_ys, subsequent_mask(ys.size(1)).type_as(batch.src))
@@ -295,16 +308,15 @@ def test_model_storage_FSM(data_processor, block_indexes, block_sizes, d_model, 
                     prob[0][j] = -sys.maxsize
             _, next_word = torch.max(torch.tensor(prob), dim=1)
             next_word = next_word.item()
-            if next_word == 3:
-                print("<end>")
+            if next_word == 0:
                 break
             if next_word != 2:
-                if flag_index_first:
-                    flag_index_first = False
-                    flag_index_inner = True
                 column_set.append(vocab[next_word])
             if next_word == 2:
-                flag_index_first = True
+                index_lenth += 1
+                flag_done = True
+                flag_seq = True
+                flag_index_first = False
                 flag_index_inner = False
                 indexes_str = str_ys.replace(' ; ', ';').replace(' ;', ';').split(';')
                 index_str = indexes_str[len(indexes_str) - 1]
@@ -312,6 +324,7 @@ def test_model_storage_FSM(data_processor, block_indexes, block_sizes, d_model, 
                 column_set = list()
             ys = torch.cat([ys, torch.ones(1, 1).type_as(batch.src).fill_(next_word)], dim=1).to(device)
             new_ys = copy.deepcopy(ys).tolist()
+            # 对new_ys启发式编码
             for k in range(len(new_ys[0])):
                 new_ys[0][k] = list(new_vocab.values())[int(new_ys[0][k])]
             new_ys = torch.tensor(new_ys).to(device)
@@ -327,50 +340,73 @@ def test_model_storage_FSM(data_processor, block_indexes, block_sizes, d_model, 
             new_ys = new_ys + pe[:, : new_ys.size(1)].requires_grad_(False)
             if new_ys.size(1) > 50:
                 break
-            # decode ys
+            # 对ys解码
             str_ys = copy.deepcopy(ys).tolist()[0]
             str_ys = str_ys[1:len(str_ys)]
             for k in range(len(str_ys)):
                 str_ys[k] = list(new_vocab.keys())[int(str_ys[k])]
             str_ys = ' '.join(str_ys)
+            if next_word == 2:
+                next_word = -1
+        new_data['budget'] = budget
+        new_data['workload'] = batch.workload[0]
+        new_data['label_index'] = batch.tgt_o[0]
+        new_data['gen_index'] = ';'.join(created_indexes)
+        test_workload.append(new_data)
+    print("Inference End")
+    end_time = time.time()
+    print("Evaluate Begin")
+    for i in range(len(test_workload)):
         storage_cost = 0
-        created_indexes = data_processor.rank_indexes_v2(created_indexes, workload)
+        budget = test_workload[i]['budget']
+        workload = test_workload[i]['workload']
+        created_indexes = test_workload[i]['gen_index'].split(";")
+        init_cost = (np.array(db_connector.get_queries_cost(list(workload.keys()))) * np.array(
+            list(workload.values()))).sum()
+        # created_indexes = data_processor.rank_indexes_v2(created_indexes, workload)
+        db_connector.delete_indexes()
         for j in range(len(created_indexes)):
             oid = db_connector.execute_create_hypo(created_indexes[j])
-            storage = db_connector.get_storage_cost(oid)[0] / 1000 / 1000
+            storage = db_connector.get_storage_cost(oid)[0] / 1024 / 1024
             storage_cost += storage
             if storage_cost > budget:
                 storage_cost -= storage
                 db_connector.execute_delete_hypo(oid)
-        print(storage_cost)
+                if len(created_indexes[j].split(" ")) > 1:
+                    new_created_index = " ".join(
+                        created_indexes[j].split(" ")[0:len(created_indexes[j].split(" ")) - 1])
+                    created_indexes[j] = new_created_index
+                    oid = db_connector.execute_create_hypo(created_indexes[j])
+                    storage = db_connector.get_storage_cost(oid)[0] / 1024 / 1024
+                    storage_cost += storage
+                    if storage_cost > budget:
+                        storage_cost -= storage
+                        db_connector.execute_delete_hypo(oid)
         gen_cost = (np.array(db_connector.get_queries_cost(list(workload.keys()))) * np.array(
             list(workload.values()))).sum()
         gen_reward = 100 * (init_cost - gen_cost) / init_cost
         db_connector.delete_indexes()
-        # calculate label index's reward
-        label_indexes = batch.tgt_o[0].split(';')
+        # 计算label index的reward
+        label_indexes = test_workload[i]['label_index'].split(';')
         label_storage = 0
         for j in range(len(label_indexes)):
             oid = db_connector.execute_create_hypo(label_indexes[j].replace(',', ' '))
-            storage = db_connector.get_storage_cost(oid)[0] / 1000 / 1000
+            storage = db_connector.get_storage_cost(oid)[0] / 1024 / 1024
             label_storage += storage
             if label_storage > budget:
                 db_connector.execute_delete_hypo(oid)
         print(label_storage)
+        print(budget)
         label_cost = (np.array(db_connector.get_queries_cost(list(workload.keys()))) * np.array(
             list(workload.values()))).sum()
         label_reward = 100 * (init_cost - label_cost) / init_cost
-        # label_reward = batch.reward[0]
         db_connector.delete_indexes()
         print(f'Generate Index: {";".join(created_indexes)}')
-        print(f'Label    Index: {batch.tgt_o[0].replace(",", " ")}')
-        logging.info(f'Generate Index: {";".join(indexes_str)}')
-        logging.info(f'Label    Index: {batch.tgt_o[0].replace(",", " ")}')
+        print(f'Label    Index: {test_workload[i]["label_index"]}')
         print(f'Reward Compare: {gen_reward} : {label_reward}')
-        logging.info(f'Reward Compare: {gen_reward} : {label_reward}')
         reward_gen_sum += gen_reward
         reward_label_sum += label_reward
-        if label_reward > 0:
+        if label_reward > 1:
             if label_reward >= gen_reward:
                 compare = 100 * (label_reward - gen_reward) / label_reward
             else:
@@ -378,36 +414,10 @@ def test_model_storage_FSM(data_processor, block_indexes, block_sizes, d_model, 
             reward_compare_sum += compare
             reward_compare_num += 1
             print(f'Reward    down: {compare}%')
-            logging.info(f'Reward    down: {compare}%')
-            if budget == 250:
-                reward_250_sum += compare
-                reward_250_num += 1
-            if budget == 500:
-                reward_500_sum += compare
-                reward_500_num += 1
-            if budget == 750:
-                reward_750_sum += compare
-                reward_750_num += 1
-            if budget == 1000:
-                reward_1000_sum += compare
-                reward_1000_num += 1
-            if budget == 1500:
-                reward_1500_sum += compare
-                reward_1500_num += 1
-            if budget == 2000:
-                reward_2000_sum += compare
-                reward_2000_num += 1
-    print(f'Reward Compare Average: {reward_compare_sum / reward_compare_num}%')
-    print(reward_label_sum)
-    print(reward_gen_sum)
-    print((reward_label_sum - reward_gen_sum) * 100 / reward_label_sum)
-    logging.info(f'Reward Compare Average: {reward_compare_sum / reward_compare_num}%')
-    print(f"250: {reward_250_sum / reward_250_num}")
-    print(f"500: {reward_500_sum / reward_500_num}")
-    print(f"750: {reward_750_sum / reward_750_num}")
-    print(f"1000: {reward_1000_sum / reward_1000_num}")
-    print(f"1500: {reward_1500_sum / reward_1500_num}")
-    print(f"2000: {reward_2000_sum / reward_2000_num}")
+    print("Evaluate End")
+    print(f"Inference Time: {end_time - start_time}")
+    print(f'Reward Compare Average v1: {reward_compare_sum / reward_compare_num}%')
+    print(f'Reward Compare Average v2: {(reward_label_sum - reward_gen_sum) * 100 / reward_label_sum}%')
     return reward_compare_sum / reward_compare_num
 
 
@@ -610,5 +620,5 @@ if __name__ == '__main__':
         print('Testing...')
         block_indexes = [0, 8, 24, 28, 37, 46, 51, 54]
         block_sizes = [8, 16, 4, 9, 9, 5, 3, 7]
-        test_model_storage_FSM(data_processor, block_indexes, block_sizes, model_dim, model, other_test_data, pth_path, config, model_dim, V, max_len=600, start_symbol=1)
+        test_model_storage_FSM(block_indexes, block_sizes, model_dim, model, other_test_data, pth_path, config, model_dim, V, max_len=600, start_symbol=1)
         print('Testing End')
