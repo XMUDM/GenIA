@@ -99,20 +99,16 @@ class PGHypo:
             # print(cost_long)
         return costs
 
-    def get_rel_cost(self, query_list):
-        print("real")
+        def get_rel_cost(self, query_list):
         cost_list: List[float] = list()
         cur = self.conn.cursor()
-        cost_sum = 0
         for i, query in enumerate(query_list):
-            print("Query :" + str(i))
-            print(query)
-            _start = time.time()
-            cur.execute(query)
-            _end = time.time()
-            cost_list.append(_end - _start)
-            cost_sum += (_end - _start)
-        return cost_sum
+            statement = f"explain (analyze, buffers, format json) {query}"
+            cur.execute(statement)
+            plan = cur.fetchall()[0][0][0]["Plan"]
+            result = plan["Actual Total Time"]
+            cost_list.append(result)
+        return cost_list
 
     def execute_sql(self, sql):
         cur = self.conn.cursor()
@@ -318,3 +314,54 @@ class PGHypo:
         cur.execute(sql)
         rows = cur.fetchall()[0][0]
         return rows
+
+        def drop_indexes(self, indexes):
+        for index in indexes:
+            drop_stmt = "drop index {}".format(index)
+            print(drop_stmt)
+            self.execute_sql(drop_stmt)
+        return
+
+    def create_indexes(self, indexes):
+        i = 0
+        for index in indexes:
+            schema = index.split("#")
+            sql = 'CREATE INDEX START_X_IDx' + str(i) + ' ON ' + schema[0] + "(" + schema[1] + ');'
+            print(sql)
+            self.execute_sql(sql)
+            i += 1
+
+    def drop_one_index(self, index):
+        sql = f'drop index {index};'
+        print(sql)
+        self.execute_sql(sql)
+
+    def create_one_index(self, index):
+        columns = index.split(" ")
+        table = columns[0].split("#")[0]
+        column1 = ""
+        column2 = ""
+        for c in columns:
+            column1 = column1 + "_" + c.split("#")[1]
+            column2 = column2 + "," + c.split("#")[1]
+        column1 = column1[1:]
+        column2 = column2[1:]
+        index_name = f'START_X_ID_{table}_{column1}'
+        sql = f'CREATE INDEX {index_name}' + ' ON ' + table + "(" + column2 + ');'
+        self.execute_sql(sql)
+        return index_name
+
+    def create_one_index_v2(self, index):
+        columns = index.split(",")
+        table = columns[0].split("#")[0]
+        column1 = ""
+        column2 = ""
+        for c in columns:
+            column1 = column1 + "_" + c.split("#")[1]
+            column2 = column2 + "," + c.split("#")[1]
+        column1 = column1[1:]
+        column2 = column2[1:]
+        index_name = f'START_X_ID_{table}_{column1}'
+        sql = f'CREATE INDEX {index_name}' + ' ON ' + table + "(" + column2 + ');'
+        self.execute_sql(sql)
+        return index_name
