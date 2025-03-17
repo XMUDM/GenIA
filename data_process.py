@@ -480,9 +480,9 @@ class DataProcessor:
         progress_bar = tqdm(range(len(data)))
         new_data = []
         for d in data:
-            if d['index'] == '':
+            if d['index1'] == '':
                 continue
-            t = d['index']
+            t = d['index1']
             new_t = []
             new_ty = []
             ts = t.split(";")
@@ -539,7 +539,8 @@ class DataProcessor:
     def data_rank_indexes(self, data):
         progress_bar = tqdm(range(len(data)))
         for d in data:
-            d['index'] = self.rank_indexes(d['index'], d['workload'])
+            d['index1'] = self.rank_indexes(d['index1'], d['workload'])
+            d['index2'] = self.rank_indexes(d['index2'], d['workload'])
             progress_bar.update(1)
         return data
 
