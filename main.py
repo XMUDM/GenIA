@@ -484,7 +484,7 @@ if __name__ == '__main__':
 
     # filter unavailable data
     for d in template_data:
-        if d["reward"] > 0 and len(d['index']) != 0 and d['index'] != '':
+        if d["reward"] > 0 and len(d['index1']) != 0 and d['index1'] != '':
             template_workload.append(d)
     new_template_workload = []
     for workload in template_workload:
@@ -525,7 +525,7 @@ if __name__ == '__main__':
     template_test_data = []
     count = 0
     for i in template_workload:
-        if i['index'] == '':
+        if i['index1'] == '':
             continue
         if count % 10 != 9:
         # if count % 10 != 9 and count % 10 != 8:
