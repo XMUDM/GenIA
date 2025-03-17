@@ -361,46 +361,66 @@ def test_model_storage_FSM(block_indexes, block_sizes, d_model, model, test_data
         budget = test_workload[i]['budget']
         workload = test_workload[i]['workload']
         created_indexes = test_workload[i]['gen_index'].split(";")
-        init_cost = (np.array(db_connector.get_queries_cost(list(workload.keys()))) * np.array(
+        init_cost = (np.array(db_connector.get_rel_cost(list(workload.keys()))) * np.array(
             list(workload.values()))).sum()
-        # created_indexes = data_processor.rank_indexes_v2(created_indexes, workload)
-        db_connector.delete_indexes()
-        for j in range(len(created_indexes)):
-            oid = db_connector.execute_create_hypo(created_indexes[j])
+        # label reward
+        real_label_indexes = []
+        storage_cost = 0
+        label_indexes = label_index.split(";")
+        for j in range(len(label_indexes)):
+            oid = db_connector.execute_create_hypo_v2(label_indexes[j])
+            index_name = db_connector.create_one_index_v2(label_indexes[j])
+            print(index_name)
+            real_label_indexes.append(index_name)
             storage = db_connector.get_storage_cost(oid)[0] / 1024 / 1024
             storage_cost += storage
             if storage_cost > budget:
                 storage_cost -= storage
                 db_connector.execute_delete_hypo(oid)
+                db_connector.drop_one_index(index_name)
+                real_label_indexes.remove(index_name)
+        label_cost = (np.array(db_connector.get_rel_cost(list(workload.keys()))) * np.array(
+            list(workload.values()))).sum()
+        label_reward = 100 * (init_cost - label_cost) / init_cost
+        print(real_label_indexes)
+        db_connector.drop_indexes(real_label_indexes)
+        # gen reward
+        storage_cost = 0
+        # created_indexes = data_processor.rank_indexes_v2(created_indexes, workload)
+        real_created_indexes = []
+        for j in range(len(created_indexes)):
+            oid = db_connector.execute_create_hypo(created_indexes[j])
+            index_name = db_connector.create_one_index(created_indexes[j])
+            print(index_name)
+            real_created_indexes.append(index_name)
+            storage = db_connector.get_storage_cost(oid)[0] / 1024 / 1024
+            storage_cost += storage
+            if storage_cost > budget:
+                print(111)
+                storage_cost -= storage
+                db_connector.execute_delete_hypo(oid)
+                db_connector.drop_one_index(index_name)
+                real_created_indexes.remove(index_name)
                 if len(created_indexes[j].split(" ")) > 1:
                     new_created_index = " ".join(
                         created_indexes[j].split(" ")[0:len(created_indexes[j].split(" ")) - 1])
-                    created_indexes[j] = new_created_index
-                    oid = db_connector.execute_create_hypo(created_indexes[j])
-                    storage = db_connector.get_storage_cost(oid)[0] / 1024 / 1024
-                    storage_cost += storage
-                    if storage_cost > budget:
-                        storage_cost -= storage
-                        db_connector.execute_delete_hypo(oid)
-        gen_cost = (np.array(db_connector.get_queries_cost(list(workload.keys()))) * np.array(
+                    if new_created_index not in real_created_indexes:
+                        created_indexes[j] = new_created_index
+                        oid = db_connector.execute_create_hypo(created_indexes[j])
+                        index_name = db_connector.create_one_index(created_indexes[j])
+                        real_created_indexes.append(index_name)
+                        storage = db_connector.get_storage_cost(oid)[0] / 1024 / 1024
+                        storage_cost += storage
+                        if storage_cost > budget:
+                            storage_cost -= storage
+                            db_connector.execute_delete_hypo(oid)
+                            db_connector.drop_one_index(index_name)
+                            real_created_indexes.remove(index_name)
+        gen_cost = (np.array(db_connector.get_rel_cost(list(workload.keys()))) * np.array(
             list(workload.values()))).sum()
         gen_reward = 100 * (init_cost - gen_cost) / init_cost
-        db_connector.delete_indexes()
-        # 计算label index的reward
-        label_indexes = test_workload[i]['label_index'].split(';')
-        label_storage = 0
-        for j in range(len(label_indexes)):
-            oid = db_connector.execute_create_hypo(label_indexes[j].replace(',', ' '))
-            storage = db_connector.get_storage_cost(oid)[0] / 1024 / 1024
-            label_storage += storage
-            if label_storage > budget:
-                db_connector.execute_delete_hypo(oid)
-        print(label_storage)
-        print(budget)
-        label_cost = (np.array(db_connector.get_queries_cost(list(workload.keys()))) * np.array(
-            list(workload.values()))).sum()
-        label_reward = 100 * (init_cost - label_cost) / init_cost
-        db_connector.delete_indexes()
+        print(real_created_indexes)
+        db_connector.drop_indexes(real_created_indexes)
         print(f'Generate Index: {";".join(created_indexes)}')
         print(f'Label    Index: {test_workload[i]["label_index"]}')
         print(f'Reward Compare: {gen_reward} : {label_reward}')
